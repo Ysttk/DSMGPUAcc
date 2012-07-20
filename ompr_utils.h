@@ -297,6 +297,7 @@ HRESULT RecContain(RecType* rec1, RecType* rec2,int dim) {
 
 
 void checkCUDAError(const char* msg);
+double gettime();
 
 pid_t getPrefetchIdFromAgentId(pid_t pid);
 

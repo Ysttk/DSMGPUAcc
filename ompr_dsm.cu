@@ -39,30 +39,14 @@ CPUMemoryManager* CPUMemManager;
 
 //int BlockSharp[] = {32, 32, 32, 32, 32};  //default block shape for all arrays
 
-bool initialized[DSM_MAX_PTHREADS]; //if true, don't need to call cuInit()
-//again.
+bool initialized[DSM_MAX_PTHREADS]; //if true, don't need to call cuInit() again.
 
-/* record the number of calling dsm-func, stands for the logical sequence
- * of omp thread, used to determine which state of data to use, old or waiting
- */
-//int logicalLine[DSM_MAX_PTHREADS];
 
-/* record the tasks assigned by computing patition
- */
-//extern Tasks tasks[DSM_MAX_PTHREADS];
 #ifdef PREFETCH
 //prefetch 
 DSMDFTraceManager traceMgr;
 #endif
 
-extern double gettime();
-/*
-//valid data set     need mutex  
-std::queue<std::set<BlockKey> > gpu1PrefetchQueue;
-pthread_mutex_t modifyGpu1Queue;
-std::queue<std::set<BlockKey> > gpu2PrefetchQueue;
-pthread_mutex_t modifyGpu2Queue;
- */
 
 cudaStream_t Streams[GPU_NUM*2][DSM_MAX_STREAMS];
 
@@ -123,7 +107,7 @@ bool operator < (const BlockKey& k1, const BlockKey& k2) {
     if (k1.ub[i] < k2.ub[i]) return true;
     if (k1.ub[i] > k2.ub[i]) return false;
   }
-    //if (k1.lb[i] > k2.lb[i] || k2.ub[i] < k1.ub[i]) return false;
+  //if (k1.lb[i] > k2.lb[i] || k2.ub[i] < k1.ub[i]) return false;
   return false;
 }
 
@@ -207,7 +191,7 @@ OMPRresult BlockOnGPUState::getDataInvalid(Device_Thread threadId, Operation& op
 {
   UpdateGPUBlock(stream, dataObjRef, *this, dataObjRef->cpuState,
       *opposeDeviceRef, (Device_Thread)OtherGPUThd(threadId), dataObjRef->base);
-  
+
   dataObjRef->WaitGPU(threadId);
 
   if (opr.AccessType == Operation::RONLY) {
@@ -265,58 +249,6 @@ OMPRresult DataObjState::getDataObjOnCPU(Device_Thread threadId, Operation& opr,
   return SUCCESS;
 }
 
-/*
- * This function is used to decrease the shape (including lower bound lb and upper bound ub)
- * Acquirement:
- * Before calling this function, programmer must make sure already calling WriteLock()
- * to get a write lock.
- */
-/*
-OMPRresult DataObjState::DecreaseShapeTo(int lb[], int ub[]) 
-{
-  int origUB[DSM_MAX_DIMENSION],origLB[DSM_MAX_DIMENSION];
-  for (int i=0; i<dims; i++) {
-    origLB[i] = dimsOffset[i];
-    origUB[i] = dimsOffset[i]+shape[i] -1;
-    dimsOffset[i] = lb[i];
-    shape[i] = origUB[i]-dimsOffset[i] +1;
-  }
-
-  gpu1.DecreaseShapeTo(dims, origLB, origUB, lb, ub);
-  gpu2.DecreaseShapeTo(dims, origLB, origUB, lb, ub);
-
-  return SUCCESS;
-}
-
-OMPRresult BlockOnGPUState::DecreaseShapeTo(int dim, int oldLB[], int oldUB[],
-    int newLB[], int newUB[]) 
-{
-  int newLoff[DSM_MAX_DIMENSION], newUoff[DSM_MAX_DIMENSION];
-  for (int i=0; i<dim; i++) {
-    newLoff[i] = loff[i] + oldLB[i]-newLB[i];
-    newUoff[i] = uoff[i] + newUB[i]-oldUB[i];
-  }
-
-  //halo region modification
-  const int* len = dataObjRef->dimsLen;
-  int newHaloLoffL[DSM_MAX_DIMENSION], newHaloLoffU[DSM_MAX_DIMENSION],
-      oldHaloLoffL[DSM_MAX_DIMENSION], oldHaloLoffU[DSM_MAX_DIMENSION],
-      newHaloUoffL[DSM_MAX_DIMENSION], newHaloUoffU[DSM_MAX_DIMENSION],
-      oldHaloUoffL[DSM_MAX_DIMENSION], oldHaloUoffU[DSM_MAX_DIMENSION];
-
-  for (int i=0; i<dim; i++) {
-    newHaloLoffL[i] = MAX(newLB[i]-newLoff[i], 0); newHaloLoffU[i] = newLB[i]-1;
-    oldHaloLoffL[i] = MAX(oldLB[i]-loff[i], 0); oldHaloLoffU[i] = oldLB[i]-1;
-    newHaloUoffL[i] = newUB[i]+1; newHaloUoffU[i] = MIN(MAX(newUB[i]+newUoff[i], 0), len[i]);
-    oldHaloUoffL[i] = oldUB[i]+1; oldHaloUoffU[i] = MIN(MAX(oldUB[i]+uoff[i], 0), len[i]);
-  }
-  //TODO
-
-
-}
-*/
-
-
 
 OMPRresult DataObjState::AddCoverBlock(int lb[], int ub[]) {
   BlankBlock blackBlock(lb,ub);
@@ -365,42 +297,42 @@ __global__ void copy_kernel4(double* dest, double* src, int num,
     int cDOffset0, int cDOffset1, int cDOffset2, int cDOffset3,
     int cSOffset0, int cSOffset1, int cSOffset2, int cSOffset3,
     int cshape0, int cshape1, int cshape2, int cshape3) {
-     
-    int tid = blockIdx.x*blockDim.x + threadIdx.x;
-    tid *= 2;
-    for (int itr = tid; itr<num; itr+=gridDim.x*blockDim.x*2) {
-        int idx = itr/*+startOff*/;
-        int dimIdx0 = idx % cshape0;
-        idx /= cshape0;
-        int dimIdx1 = idx % cshape1;
-        idx /= cshape1;
-        int dimIdx2 = idx % cshape2;
-        idx /= cshape2;
-        int dimIdx3 = idx;
 
-        int srcIdx = dimIdx3+cSOffset3;
-        int destIdx = dimIdx3+cDOffset3;
-        srcIdx = srcIdx*cSLen2+ dimIdx2+cSOffset2;
-        destIdx = destIdx*cDLen2 + dimIdx2 + cDOffset2;
-        srcIdx = srcIdx*cSLen1+ dimIdx1+cSOffset1;
-        destIdx = destIdx*cDLen1 + dimIdx1 + cDOffset1;
-        srcIdx = srcIdx*cSLen0 + dimIdx0 + cSOffset0;
-        destIdx = destIdx*cDLen0 + dimIdx0 + cDOffset0;
+  int tid = blockIdx.x*blockDim.x + threadIdx.x;
+  tid *= 2;
+  for (int itr = tid; itr<num; itr+=gridDim.x*blockDim.x*2) {
+    int idx = itr/*+startOff*/;
+    int dimIdx0 = idx % cshape0;
+    idx /= cshape0;
+    int dimIdx1 = idx % cshape1;
+    idx /= cshape1;
+    int dimIdx2 = idx % cshape2;
+    idx /= cshape2;
+    int dimIdx3 = idx;
 
-        dest[destIdx] = src[srcIdx];
-        if (itr+1 < num) 
-        dest[destIdx+1] = src[srcIdx+1];
-    }
+    int srcIdx = dimIdx3+cSOffset3;
+    int destIdx = dimIdx3+cDOffset3;
+    srcIdx = srcIdx*cSLen2+ dimIdx2+cSOffset2;
+    destIdx = destIdx*cDLen2 + dimIdx2 + cDOffset2;
+    srcIdx = srcIdx*cSLen1+ dimIdx1+cSOffset1;
+    destIdx = destIdx*cDLen1 + dimIdx1 + cDOffset1;
+    srcIdx = srcIdx*cSLen0 + dimIdx0 + cSOffset0;
+    destIdx = destIdx*cDLen0 + dimIdx0 + cDOffset0;
+
+    dest[destIdx] = src[srcIdx];
+    if (itr+1 < num) 
+      dest[destIdx+1] = src[srcIdx+1];
+  }
 
 }
 
 __global__ void copy_kernel3(double* dest, double* src, int num, 
-          int cDLen0, int cDLen1, int cDLen2,
-          int cSLen0, int cSLen1, int cSLen2,
-          int cDOffset0, int cDOffset1, int cDOffset2,
-          int cSOffset0, int cSOffset1, int cSOffset2,
-          int cshape0, int cshape1, int cshape2) {
-  
+    int cDLen0, int cDLen1, int cDLen2,
+    int cSLen0, int cSLen1, int cSLen2,
+    int cDOffset0, int cDOffset1, int cDOffset2,
+    int cSOffset0, int cSOffset1, int cSOffset2,
+    int cshape0, int cshape1, int cshape2) {
+
 
   int idx = blockIdx.x*blockDim.x + threadIdx.x;
   idx *= 2;
@@ -431,56 +363,52 @@ __global__ void copy_kernel3(double* dest, double* src, int num,
 void KernelCopyAsync(void* dest, int* dLen, int* dOffset,
     void* src, int* sLen, int* sOffset,
     int* shape, int dim, ElementType type, cudaStream_t &stream) {
-    //cudaThreadSynchronize();
-    static double atime =0.0;
-    //double start = gettime();
-    int size=1;
-    for (int i=0; i<dim; i++)
-        size *= shape[i];
-    size*=8; size/=8;  //every thread copy eight byte 
+  //cudaThreadSynchronize();
+  static double atime =0.0;
+  //double start = gettime();
+  int size=1;
+  for (int i=0; i<dim; i++)
+    size *= shape[i];
+  size*=8; size/=8;  //every thread copy eight byte 
 
-    int reShape[DSM_MAX_DIMENSION];
-    int reDLen[DSM_MAX_DIMENSION], reSLen[DSM_MAX_DIMENSION],
-        reDOffset[DSM_MAX_DIMENSION], reSOffset[DSM_MAX_DIMENSION];
-    for (int i=0; i<dim; i++) {
-       reShape[i]=shape[i]*4/4;
-       reDLen[i] = dLen[i]*4/4;
-       reDOffset[i] = dOffset[i]*4/4;
-       reSLen[i] = sLen[i]*4/4;
-       reSOffset[i] = sOffset[i]*4/4;
+  int reShape[DSM_MAX_DIMENSION];
+  int reDLen[DSM_MAX_DIMENSION], reSLen[DSM_MAX_DIMENSION],
+      reDOffset[DSM_MAX_DIMENSION], reSOffset[DSM_MAX_DIMENSION];
+  for (int i=0; i<dim; i++) {
+    reShape[i]=shape[i]*4/4;
+    reDLen[i] = dLen[i]*4/4;
+    reDOffset[i] = dOffset[i]*4/4;
+    reSLen[i] = sLen[i]*4/4;
+    reSOffset[i] = sOffset[i]*4/4;
+  }
+
+  int thrdPerBlock = size>256?256:size;
+  int blockN = size/256/2+1;
+  if (blockN > 65535) blockN=65535;
+  int residue = size%256;
+
+  if (dim==3) {
+    if (blockN > 0)
+      copy_kernel3<<<blockN, thrdPerBlock, 0, stream>>>((double*)dest, (double*)src, size,
+          reDLen[0], reDLen[1], reDLen[2],
+          reSLen[0], reSLen[1], reSLen[2],
+          reDOffset[0], reDOffset[1], reDOffset[2],
+          reSOffset[0], reSOffset[1], reSOffset[2],
+          reShape[0], reShape[1], reShape[2]);
+  } else if (dim==4) {
+    if (blockN > 0) {
+      copy_kernel4<<<blockN, thrdPerBlock, 0, stream>>>((double*)dest, (double*)src, size,
+          reDLen[0], reDLen[1], reDLen[2], reDLen[3],
+          reSLen[0], reSLen[1], reSLen[2], reSLen[3],
+          reDOffset[0], reDOffset[1], reDOffset[2], reDOffset[3],
+          reSOffset[0], reSOffset[1], reSOffset[2], reSOffset[3],
+          reShape[0], reShape[1], reShape[2], reShape[3]);
+      //cudaStreamSynchronize(stream);
     }
-
-    int thrdPerBlock = size>256?256:size;
-    int blockN = size/256/2+1;
-    if (blockN > 65535) blockN=65535;
-    int residue = size%256;
-
-    if (dim==3) {
-        if (blockN > 0)
-            copy_kernel3<<<blockN, thrdPerBlock, 0, stream>>>((double*)dest, (double*)src, size,
-                reDLen[0], reDLen[1], reDLen[2],
-                reSLen[0], reSLen[1], reSLen[2],
-                reDOffset[0], reDOffset[1], reDOffset[2],
-                reSOffset[0], reSOffset[1], reSOffset[2],
-                reShape[0], reShape[1], reShape[2]);
-    } else if (dim==4) {
-        if (blockN > 0) {
-            copy_kernel4<<<blockN, thrdPerBlock, 0, stream>>>((double*)dest, (double*)src, size,
-               reDLen[0], reDLen[1], reDLen[2], reDLen[3],
-               reSLen[0], reSLen[1], reSLen[2], reSLen[3],
-               reDOffset[0], reDOffset[1], reDOffset[2], reDOffset[3],
-               reSOffset[0], reSOffset[1], reSOffset[2], reSOffset[3],
-               reShape[0], reShape[1], reShape[2], reShape[3]);
-               //cudaStreamSynchronize(stream);
-        }
-        //checkCUDAError("");
-    } else {
-        assert(0);
-    }
-    
-    //double end = gettime()
-    //atime += end-start;
-    //printf("KernelCopyAsync Time :%lf\n", atime);
+    //checkCUDAError("");
+  } else {
+    assert(0);
+  }
 }
 
 HRESULT KernelCopy(void* dest, int* dLen, int* dOffset,
@@ -550,15 +478,14 @@ OMPRresult omprDSMGlobalInit(int n) {
   re = pthread_mutex_init(&OmprInitLock[1], NULL);
 
   return SUCCESS;
-
 }
 
 OMPRresult stopPrefetchWorkerThreads()
 {
 #ifdef PREFETCH
-    traceMgr.stopWorkerThreads();
+  traceMgr.stopWorkerThreads();
 #endif
-    return SUCCESS;
+  return SUCCESS;
 }
 
 bool enter = 0;
@@ -573,7 +500,7 @@ OMPRresult omprInit(pid_t ompThreadId) {
     pthread_mutex_lock(&(OmprInitLock[ompThreadId]));
     if(!enter){
       if ((ompThreadId==GPU1_THREAD )
-        || (ompThreadId==GPU2_THREAD )) {
+          || (ompThreadId==GPU2_THREAD )) {
         int flags =0;
         CUDAInfo& info = Cudas[ompThreadId];
         if (info.device == 0 && info.context ==0) {
@@ -589,7 +516,7 @@ OMPRresult omprInit(pid_t ompThreadId) {
         CPUMemManager = new CPUMemoryManager();
       }
       if (ompThreadId == GPU1_THREAD || 
-        ompThreadId == GPU2_THREAD)
+          ompThreadId == GPU2_THREAD)
         DevMemManager[ompThreadId] = new DeviceMemoryManager((Device_Thread)ompThreadId);
       int re = pthread_barrier_wait(&initBarrier);
       enter = 1;
@@ -648,7 +575,7 @@ HRESULT TransferData(BOOL async, cudaStream_t& stream, int dims,
       size*=shape[i];
     }
     long cpuOffset=cpuDimsOffset[dims-1],
-        gpuOffset=gpuDimsOffset[dims-1];
+         gpuOffset=gpuDimsOffset[dims-1];
     for (int i=dims-1; i>0; i--) {
       cpuOffset = cpuOffset*dimsLen[i-1]+ cpuDimsOffset[i-1];
       gpuOffset = gpuOffset*gpuDimsLen[i-1]+ gpuDimsOffset[i-1];
@@ -895,209 +822,7 @@ HRESULT UpdateCPUBlock(DataObjState* state, void* cpuArrayBase) {
   return SUCCESS;
 }
 
-HRESULT CopyBackValue(BlockOnGPUState* gpuState)
-{
-  /*
-  if (gpuState->getDataObjState()->cpuState == SValid ||
-      gpuState->getOpposeDeviceState()->state == SValid)
-    return SUCCESS;
 
-  UpdateCPUBlock(gpuState->getDataObjState(), gpuState->getDataObjState()->base);
-  */
-
-}
-
-HRESULT UpdateGPUBlock(cudaStream_t& stream, DataObjState* state,
-    BlockOnGPUState& destGPU, volatile State& cpuState, BlockOnGPUState& srcGPU,
-    Device_Thread srcThreadId, void* cpuArrayBase) {
-
-  int size=1;
-  for (int i=0; i<state->dims; i++)
-    size *= state->shape[i];
-
-  if (cpuState == SValid) {
-
-    int shape[DSM_MAX_DIMENSION], dimsOffset[DSM_MAX_DIMENSION];
-    int gpuLen[DSM_MAX_DIMENSION];
-    for (int i=0; i<state->dims; i++) {
-      shape[i] = state->shape[i] /*+ srcGPU.loff[i] + srcGPU.uoff[i]*/;
-      dimsOffset[i] = state->dimsOffset[i] /*- srcGPU.loff[i]*/;
-      gpuLen[i] = state->shape[i] + destGPU.loff[i] +
-        destGPU.uoff[i];
-    } //computing the whole region including shadow part
-
-    Cudas[OtherGPUThd(srcThreadId)].LockAndPushContext();
-    /*
-       if (destGPU.addr == NULL) {
-       CudaSafe(cudaMalloc(&destGPU.addr,size ));
-       }*/
-    TransferData(TRUE, stream, state->dims, state->dimsLen, gpuLen,
-        shape, dimsOffset, destGPU.loff, cpuArrayBase, destGPU.Addr,
-        state->eleType, cudaMemcpyHostToDevice);
-    destGPU.stream = stream;
-    Cudas[OtherGPUThd(srcThreadId)].ReleaseAndPopContext();
-
-  } else if (srcGPU.state == SValid) {
-
-    int shape[DSM_MAX_DIMENSION], dimsOffset[DSM_MAX_DIMENSION];
-    int srcGPULen[DSM_MAX_DIMENSION], destGPULen[DSM_MAX_DIMENSION];
-    for (int i=0; i<state->dims; i++) {
-      shape[i] = state->shape[i] /*+ srcGPU.loff[i] + srcGPU.uoff[i]*/;
-      dimsOffset[i] = state->dimsOffset[i] /*- srcGPU.loff[i]*/;
-      destGPULen[i] = state->shape[i] + destGPU.loff[i] +
-        destGPU.uoff[i];
-      srcGPULen[i] = state->shape[i] + srcGPU.loff[i] +
-        srcGPU.uoff[i];
-    } //computing the whole region including shadow part
-
-    Cudas[srcThreadId].LockAndPushContext();
-    TransferData(FALSE, stream, state->dims, state->dimsLen, srcGPULen,
-        shape, dimsOffset, srcGPU.loff, srcGPU.Addr, cpuArrayBase,
-        state->eleType, cudaMemcpyDeviceToHost);
-    Cudas[srcThreadId].ReleaseAndPopContext();
-
-    state->ValidCPU();
-
-    for (int i=0; i<state->dims; i++) {
-      shape[i] = state->shape[i] /*+ destGPU.loff[i] + destGPU.uoff[i]*/;
-      dimsOffset[i] = state->dimsOffset[i] /*- destGPU.loff[i]*/;
-    }
-    GPUAlloc(OtherGPUThd(srcThreadId), &destGPU.addr, size);
-    Cudas[OtherGPUThd(srcThreadId)].LockAndPushContext();
-    //if (destGPU.addr == NULL) {
-      //CudaSafe(cudaMalloc(&destGPU.addr, size ));
-    //}
-    TransferData(TRUE, stream, state->dims, state->dimsLen, destGPULen,
-        shape, dimsOffset, destGPU.loff, cpuArrayBase, destGPU.Addr,
-        state->eleType, cudaMemcpyHostToDevice);
-    destGPU.stream = stream;
-    Cudas[OtherGPUThd(srcThreadId)].ReleaseAndPopContext();
-
-  } else if (srcGPU.state == SOld) {
-    assert(0);
-
-    TransferOld2CPU(stream, srcThreadId, state, srcGPU, cpuArrayBase);
-
-    int dimsOffset[DSM_MAX_DIMENSION];
-    int gpuLen[DSM_MAX_DIMENSION];
-    for (int i=0; i<state->dims; i++) {
-      gpuLen[i] = state->shape[i] + destGPU.loff[i] + destGPU.uoff[i];
-      dimsOffset[i] = state->dimsOffset[i] /*- destGPU.loff[i]*/;
-    }
-
-    GPUAlloc(OtherGPUThd(srcThreadId), &destGPU.addr, size);
-    Cudas[OtherGPUThd(srcThreadId)].LockAndPushContext();
-    //if (destGPU.addr == NULL) {
-      //CudaSafe(cudaMalloc(&destGPU.addr, size ));
-    //}
-    TransferData(TRUE, stream, state->dims,state->dimsLen, gpuLen,
-        state->shape, dimsOffset, destGPU.loff, cpuArrayBase, destGPU.Addr,
-        state->eleType, cudaMemcpyHostToDevice);
-    destGPU.stream = stream;
-    Cudas[OtherGPUThd(srcThreadId)].ReleaseAndPopContext();
-
-
-
-  } else if (srcGPU.state == SWaiting) {
-
-    TransferWaiting2CPU(stream, srcThreadId, state, srcGPU, 
-        cpuArrayBase );
-
-    int shape[DSM_MAX_DIMENSION], dimsOffset[DSM_MAX_DIMENSION];
-    int gpuLen[DSM_MAX_DIMENSION];
-    for (int i=0; i<state->dims; i++) {
-      gpuLen[i] = state->shape[i] + destGPU.loff[i] + destGPU.uoff[i];
-      dimsOffset[i] = state->dimsOffset[i] /*- destGPU.loff[i]*/;
-    }
-    GPUAlloc(OtherGPUThd(srcThreadId), &destGPU.addr, size);
-    Cudas[OtherGPUThd(srcThreadId)].LockAndPushContext();
-    //if (destGPU.addr == NULL) {
-      //CudaSafe(cudaMalloc(&destGPU.addr, size ));
-    //}
-    TransferData(TRUE, stream, state->dims, state->dimsLen, gpuLen,
-        shape, dimsOffset, destGPU.loff, cpuArrayBase, destGPU.Addr,
-        state->eleType, cudaMemcpyHostToDevice);
-    destGPU.stream = stream;
-    Cudas[OtherGPUThd(srcThreadId)].ReleaseAndPopContext();
-
-
-  }
-
-  return SUCCESS;
-
-}
-
-HRESULT PrefetchGPUBlock(cudaStream_t& stream, DataObjState* state, 
-    BlockOnGPUState& destGPU,volatile State& cpuState, BlockOnGPUState& srcGPU,
-    Device_Thread srcThreadId, void* cpuArrayBase,PrefetchObjState& destObj) {
-
-  int size=1;
-  for (int i=0; i<state->dims; i++)
-    size *= state->shape[i];
-
-  if (cpuState == SValid) {
-
-    int shape[DSM_MAX_DIMENSION], dimsOffset[DSM_MAX_DIMENSION];
-    int gpuLen[DSM_MAX_DIMENSION];
-    for (int i=0; i<state->dims; i++) {
-      shape[i] = state->shape[i] /*+ srcGPU.loff[i] + srcGPU.uoff[i]*/;
-      dimsOffset[i] = state->dimsOffset[i] /*- srcGPU.loff[i]*/;
-      gpuLen[i] = state->shape[i] + destGPU.loff[i] +
-        destGPU.uoff[i];
-    } //computing the whole region including shadow part
-
-    Cudas[OtherGPUThd(srcThreadId)].LockAndPushContext();
-    /*
-       if (destGPU.addr == NULL) {
-       CudaSafe(cudaMalloc(&destGPU.addr,size ));
-       }*/
-    TransferData(TRUE, stream, state->dims, state->dimsLen, gpuLen,
-        shape, dimsOffset, destGPU.loff, cpuArrayBase, destObj.Addr,
-        state->eleType, cudaMemcpyHostToDevice);
-    destObj.stream = stream;
-    Cudas[OtherGPUThd(srcThreadId)].ReleaseAndPopContext();
-
-  } else if (srcGPU.state == SValid) {
-
-    int shape[DSM_MAX_DIMENSION], dimsOffset[DSM_MAX_DIMENSION];
-    int srcGPULen[DSM_MAX_DIMENSION], destGPULen[DSM_MAX_DIMENSION];
-    for (int i=0; i<state->dims; i++) {
-      shape[i] = state->shape[i] /*+ srcGPU.loff[i] + srcGPU.uoff[i]*/;
-      dimsOffset[i] = state->dimsOffset[i] /*- srcGPU.loff[i]*/;
-      destGPULen[i] = state->shape[i] + destGPU.loff[i] +
-        destGPU.uoff[i];
-      srcGPULen[i] = state->shape[i] + srcGPU.loff[i] +
-        srcGPU.uoff[i];
-    } //computing the whole region including shadow part
-
-    Cudas[srcThreadId].LockAndPushContext();
-    TransferData(FALSE, stream, state->dims, state->dimsLen, srcGPULen,
-        shape, dimsOffset, srcGPU.loff, srcGPU.Addr, cpuArrayBase,
-        state->eleType, cudaMemcpyDeviceToHost);
-    Cudas[srcThreadId].ReleaseAndPopContext();
-
-    state->ValidCPU();
-
-    for (int i=0; i<state->dims; i++) {
-      shape[i] = state->shape[i] /*+ destGPU.loff[i] + destGPU.uoff[i]*/;
-      dimsOffset[i] = state->dimsOffset[i] /*- destGPU.loff[i]*/;
-    }
-    GPUAlloc(OtherGPUThd(srcThreadId), &destObj.addr, size);
-    Cudas[OtherGPUThd(srcThreadId)].LockAndPushContext();
-    //if (destObj.addr == NULL) {
-      //CudaSafe(cudaMalloc(&destObj.addr, size ));
-    //}
-    TransferData(TRUE, stream, state->dims, state->dimsLen, destGPULen,
-        shape, dimsOffset, destGPU.loff, cpuArrayBase, destObj.Addr,
-        state->eleType, cudaMemcpyHostToDevice);
-    destObj.stream = stream;
-    Cudas[OtherGPUThd(srcThreadId)].ReleaseAndPopContext();
-
-  } 
-
-  return SUCCESS;
-
-}
 
 HRESULT UpdateHaloRegionFromCPU(int threadId, BlockOnGPUState& gpuState,
     DataObjState& dataBlock, const HaloBlock& haloBlock) {
@@ -1109,7 +834,7 @@ HRESULT UpdateHaloRegionFromCPU(int threadId, BlockOnGPUState& gpuState,
   for (int i=0; i<dataBlock.dims; i++) {
     haloRegionShape[i] = haloBlock.ub[i]-haloBlock.lb[i]+1;
     gpuDimsLen[i] = dataBlock.shape[i]+
-            gpuState.loff[i]+gpuState.uoff[i];
+      gpuState.loff[i]+gpuState.uoff[i];
     haloRegionOffsetOnGPU[i] = haloBlock.lb[i]-(dataBlock.dimsOffset[i]
         - gpuState.loff[i]);
 
@@ -1126,7 +851,7 @@ HRESULT UpdateHaloRegionFromCPU(int threadId, BlockOnGPUState& gpuState,
   return SUCCESS;
 
 }
-  
+
 
 
 
@@ -1189,7 +914,7 @@ HRESULT UpdateHaloRegion(int threadId,BlockOnGPUState& gpuState,
       while (!updated) {  //a large spin lock ^_^
         //count++;
 
-      double start1 = gettime();
+        double start1 = gettime();
         if (selfState->state == SValid ||
             selfState->state == SWaiting) {
           updated = true;
@@ -1259,8 +984,8 @@ HRESULT UpdateHaloRegion(int threadId,BlockOnGPUState& gpuState,
               blockState.eleType, cudaMemcpyHostToDevice);
           //if (threadId==GPU2_THREAD && offset[1]==0 && offset[0]==0){ 
           //    printf("something error\n");
-         //     assert(0);
-         // }
+          //     assert(0);
+          // }
           start1 += gettime()-tmpT;
 
           Cudas[threadId].ReleaseAndPopContext();
@@ -1334,8 +1059,8 @@ HRESULT UpdateHaloRegion(int threadId,BlockOnGPUState& gpuState,
         }
 
         sleep(0);
-      upTime3[threadId] += gettime()-start1;
-      printf("update halo 3 %lf in %d\n", upTime3[threadId], threadId);
+        upTime3[threadId] += gettime()-start1;
+        printf("update halo 3 %lf in %d\n", upTime3[threadId], threadId);
       }
       //printf("spin count:%d\n", count);
 
@@ -1348,22 +1073,7 @@ HRESULT UpdateHaloRegion(int threadId,BlockOnGPUState& gpuState,
 }
 
 /*
- */
-std::vector<HaloBlock*>*
-ModifiedHaloList(int dim, 
-    int oldHaloLoffL[], int oldHaloLoffU[], int oldHaloUoffL[], int oldHaloUoffU[], 
-    int oldLB[], int oldUB[],
-    int newHaloLoffL[], int newHaloLoffU[], int newHaloUoffL[], int newHaloUoffU[],
-    int newLB[], int newUB[])
-{
-
-  return NULL;
-}
-
-
-
-/*
- find out all halo regions decripted by haloBlock*off* and lb/ub
+   find out all halo regions decripted by haloBlock*off* and lb/ub
 Arg:
 dims: start with 1, dimention of the array;
 haloBlockLoffL, haloBlockLoffU:
@@ -1621,8 +1331,8 @@ HRESULT AdjustDataBlockByHaloRegion(Device_Thread thread, BlockOnGPUState& state
     last_error = cudaGetLastError();
     if(last_error != cudaSuccess)
     {
-        printf("pid : %d An error happened when executing before kernel copy- %s\n",thread,cudaGetErrorString(last_error));
-        assert(0);
+      printf("pid : %d An error happened when executing before kernel copy- %s\n",thread,cudaGetErrorString(last_error));
+      assert(0);
     }
     Cudas[thread].LockAndPushContext();
 
@@ -1636,8 +1346,8 @@ HRESULT AdjustDataBlockByHaloRegion(Device_Thread thread, BlockOnGPUState& state
     last_error = cudaGetLastError();
     if(last_error != cudaSuccess)
     {
-        printf("pid : %d An error happened when executing kernel copy- %s\n",thread,cudaGetErrorString(last_error));
-        assert(0);
+      printf("pid : %d An error happened when executing kernel copy- %s\n",thread,cudaGetErrorString(last_error));
+      assert(0);
     }
 
     state.ClearHaloMap();
@@ -1659,7 +1369,7 @@ typedef struct tagTransferData {
   void* sAddr;
   int sLen[DSM_MAX_DIMENSION],sOffset[DSM_MAX_DIMENSION];
 }transferData;
- 
+
 //compute two blocks's intersect block
 bool intersect(const DataObjState* a,const DataObjState* b,int *dimsOffset,int *shape) {
   int ub[DSM_MAX_DIMENSION];
@@ -1687,20 +1397,20 @@ void GetTransferData(int threadId,bool& flag,void* destAddr,DataObjState* state,
   for(std::vector<DataObjState*>::iterator preIter = gpuB.begin(); preIter != gpuB.end();++preIter) {
     if(intersect(state,*preIter,tmpOffset,shape)) {
       flag = true;
-      #ifdef PREFETCH 
+#ifdef PREFETCH 
       //printf("enter:%d %d %d %d \n",tmp.offset[0],tmp.offset[1],tmp.shape[0],tmp.shape[1]);
       bool findEquql = false;
       for(std::vector<RedistributionPoint>::iterator resIter = state->prefetchData.vecPoint.begin();
-        resIter != state->prefetchData.vecPoint.end(); ++resIter){
-          bool equal = true;
-          for(int i = 0; i < state->dims && equal; i++){
-              if(tmpOffset[i] != resIter->offset[i] || shape[i] != resIter->shape[i])
-                equal = false; 
-          }
-          if(equal){
-              findEquql = true;
-              break;
-          }
+          resIter != state->prefetchData.vecPoint.end(); ++resIter){
+        bool equal = true;
+        for(int i = 0; i < state->dims && equal; i++){
+          if(tmpOffset[i] != resIter->offset[i] || shape[i] != resIter->shape[i])
+            equal = false; 
+        }
+        if(equal){
+          findEquql = true;
+          break;
+        }
       }
 
       if(findEquql){
@@ -1709,19 +1419,19 @@ void GetTransferData(int threadId,bool& flag,void* destAddr,DataObjState* state,
         redistriBlocks.insert(*preIter);
         continue;
       }
-      #endif 
+#endif 
       transferData* transdata = new transferData();
       transdata->dims = state->dims;
       if(threadId == GPU1_THREAD) {
         transdata->dAddr = destAddr;
         transdata->sAddr = (*preIter)->gpu2.Addr;
         //if((*preIter)->GPUState(GPU2_THREAD) == SWaiting)
-          //CudaSafe(cudaEventSynchronize((*preIter)->gpu2.validEvent));
+        //CudaSafe(cudaEventSynchronize((*preIter)->gpu2.validEvent));
       } else if(threadId == GPU2_THREAD) {
         transdata->dAddr = destAddr;
         transdata->sAddr = (*preIter)->gpu1.Addr;
         //if((*preIter)->GPUState(GPU1_THREAD) == SWaiting)
-          //CudaSafe(cudaEventSynchronize((*preIter)->gpu1.validEvent));
+        //CudaSafe(cudaEventSynchronize((*preIter)->gpu1.validEvent));
       } 
       for(int k = 0; k < state->dims; k++) {
         transdata->shape[k] = shape[k];
@@ -1751,56 +1461,56 @@ void GetTransferData(int threadId,bool& flag,void* destAddr,DataObjState* state,
   } 
 
   /*
-  for(std::vector<DataObjState*>::iterator iter = cpu.begin(); iter != cpu.end();++iter) { 
-    if(intersect(state,*iter,tmpOffset,shape)) {
-      RedistributionPoint tmp;
-      memcpy(tmp.offset,tmpOffset,state->dims*sizeof(int));
-      memcpy(tmp.shape,shape,state->dims*sizeof(int));
-       
-      #ifdef PREFETCH 
-      if(isPrefetch){
-        state->prefetchData.vecPoint.push_back(tmp);
-      } else {
-        //printf("enter:%d %d %d %d \n",tmp.offset[0],tmp.offset[1],tmp.shape[0],tmp.shape[1]);
-        std::vector<RedistributionPoint>::iterator result =\
-          find(state->prefetchData.vecPoint.begin(),state->prefetchData.vecPoint.end(),tmp);
-        if(result != state->prefetchData.vecPoint.end()){
-          //printf("use prefetch data vecpoint\n");
-          //added by shoubaojiang
-          redistriBlocks.insert(*iter);
-          continue;
-        }
-      }
-      #endif
-      transferData* transdata = new transferData();
-      transdata->dims = state->dims;
-      transdata->dAddr = destAddr;
-      transdata->sAddr = state->base;
-      for(int k = 0; k < state->dims; k++) {
-        transdata->shape[k] = shape[k];
-        if(threadId == GPU1_THREAD){
-          transdata->dLen[k] = state->shape[k] + state->gpu1.loff[k] + state->gpu1.uoff[k];
-          transdata->dOffset[k] = tmpOffset[k] - state->dimsOffset[k] + state->gpu1.loff[k];
-        } else if(threadId == GPU2_THREAD) {
-          transdata->dLen[k] = state->shape[k] + state->gpu2.loff[k] + state->gpu2.uoff[k];
-          transdata->dOffset[k] = tmpOffset[k] - state->dimsOffset[k] + state->gpu2.loff[k];
-        }
-      }
-      memcpy(transdata->sLen,state->dimsLen,sizeof(transdata->sLen));
-      memcpy(transdata->sOffset,tmpOffset,sizeof(tmpOffset));
-      //added by shoubaojiang
-      redistriBlocks.insert(*iter);
-      //end of add
-      cpuToGpuA.push_back(transdata);
-     
-    }
-  }*/
+     for(std::vector<DataObjState*>::iterator iter = cpu.begin(); iter != cpu.end();++iter) { 
+     if(intersect(state,*iter,tmpOffset,shape)) {
+     RedistributionPoint tmp;
+     memcpy(tmp.offset,tmpOffset,state->dims*sizeof(int));
+     memcpy(tmp.shape,shape,state->dims*sizeof(int));
+
+#ifdef PREFETCH 
+if(isPrefetch){
+state->prefetchData.vecPoint.push_back(tmp);
+} else {
+  //printf("enter:%d %d %d %d \n",tmp.offset[0],tmp.offset[1],tmp.shape[0],tmp.shape[1]);
+  std::vector<RedistributionPoint>::iterator result =\
+  find(state->prefetchData.vecPoint.begin(),state->prefetchData.vecPoint.end(),tmp);
+  if(result != state->prefetchData.vecPoint.end()){
+//printf("use prefetch data vecpoint\n");
+//added by shoubaojiang
+redistriBlocks.insert(*iter);
+continue;
+}
+}
+#endif
+transferData* transdata = new transferData();
+transdata->dims = state->dims;
+transdata->dAddr = destAddr;
+transdata->sAddr = state->base;
+for(int k = 0; k < state->dims; k++) {
+transdata->shape[k] = shape[k];
+if(threadId == GPU1_THREAD){
+transdata->dLen[k] = state->shape[k] + state->gpu1.loff[k] + state->gpu1.uoff[k];
+transdata->dOffset[k] = tmpOffset[k] - state->dimsOffset[k] + state->gpu1.loff[k];
+} else if(threadId == GPU2_THREAD) {
+transdata->dLen[k] = state->shape[k] + state->gpu2.loff[k] + state->gpu2.uoff[k];
+transdata->dOffset[k] = tmpOffset[k] - state->dimsOffset[k] + state->gpu2.loff[k];
+}
+}
+memcpy(transdata->sLen,state->dimsLen,sizeof(transdata->sLen));
+memcpy(transdata->sOffset,tmpOffset,sizeof(tmpOffset));
+//added by shoubaojiang
+redistriBlocks.insert(*iter);
+//end of add
+cpuToGpuA.push_back(transdata);
+
+}
+}*/
 }
 
 HRESULT CpuCopy(void* dest, int* dLen, int* dOffset,
     void* src, int* sLen, int* sOffset,
     int* shape, int dim, ElementType type) {
-       
+
   int size=1;
   for (int i=0; i<dim; i++)
     size *= shape[i];
@@ -1809,7 +1519,7 @@ HRESULT CpuCopy(void* dest, int* dLen, int* dOffset,
   int reShape[DSM_MAX_DIMENSION];
   for (int i=0; i<dim; i++)
     reShape[i]=shape[i]*ElementSize(type)/4;
-  
+
   int dimIdx[DSM_MAX_DIMENSION];
   int srcIdx;
   int destIdx;
@@ -1821,7 +1531,7 @@ HRESULT CpuCopy(void* dest, int* dLen, int* dOffset,
       dimIdx[i] = idx % reShape[i];
       idx /= reShape[i];
     }
-   
+
     dimIdx[dim-1] = idx;
     for (int i=dim-1; i>=0; i--) {
       srcIdx = srcIdx*sLen[i]+dimIdx[i]+sOffset[i];
@@ -1833,65 +1543,66 @@ HRESULT CpuCopy(void* dest, int* dLen, int* dOffset,
   }
   //printf("destIdx : %d srcIdx: %d\n",destIdx,srcIdx);
 }
+
 void TransferCToG(int threadId,ElementType type, std::vector<transferData*>& CpuToGpu) {
-	int dLen[DSM_MAX_DIMENSION];
-	int dOffset[DSM_MAX_DIMENSION];
-	if(CpuToGpu.size() == 0)
-		return ;
-	memset(dLen,0,sizeof(dLen));
-	int dims = CpuToGpu.at(0)->dims;
-	for(std::vector<transferData*>::iterator iter = CpuToGpu.begin(); iter != CpuToGpu.end();++iter) {
-		dLen[dims-1] += (*iter)->shape[dims-1];
-		for(int i = 0; i < (*iter)->dims - 1; i++){
-			dLen[i] =  (*iter)->shape[i];
-		}
-	}
+  int dLen[DSM_MAX_DIMENSION];
+  int dOffset[DSM_MAX_DIMENSION];
+  if(CpuToGpu.size() == 0)
+    return ;
+  memset(dLen,0,sizeof(dLen));
+  int dims = CpuToGpu.at(0)->dims;
+  for(std::vector<transferData*>::iterator iter = CpuToGpu.begin(); iter != CpuToGpu.end();++iter) {
+    dLen[dims-1] += (*iter)->shape[dims-1];
+    for(int i = 0; i < (*iter)->dims - 1; i++){
+      dLen[i] =  (*iter)->shape[i];
+    }
+  }
 
-	//kernelcopy to tmp space
-	int size = 1;
-	for(int i = 0; i < dims; i++) {
-		size *= dLen[i] ;
-	}
-	size *= ElementSize(type);
+  //kernelcopy to tmp space
+  int size = 1;
+  for(int i = 0; i < dims; i++) {
+    size *= dLen[i] ;
+  }
+  size *= ElementSize(type);
 
-	
-	void* cpuforGPU ;
-	//Cudas[threadId].LockAndPushContext();
-	//CudaSafe(cudaHostAlloc((void**)&cpuforGPU,size,cudaHostAllocPortable));
-	//Cudas[threadId].ReleaseAndPopContext();
+
+  void* cpuforGPU ;
+  //Cudas[threadId].LockAndPushContext();
+  //CudaSafe(cudaHostAlloc((void**)&cpuforGPU,size,cudaHostAllocPortable));
+  //Cudas[threadId].ReleaseAndPopContext();
   cpuforGPU = PorMemManager->allocBlock(size);
 
-	memset(dOffset,0,sizeof(dOffset));
-	for(std::vector<transferData*>::iterator iter = CpuToGpu.begin(); iter != CpuToGpu.end(); ++iter) {
-		CpuCopy(cpuforGPU,dLen,dOffset,(*iter)->sAddr,(*iter)->sLen,(*iter)->sOffset,(*iter)->shape,dims,type);	
-		memcpy((*iter)->sOffset,dOffset,sizeof(dOffset));
-		dOffset[dims-1] += (*iter)->shape[dims-1];
-	}
-	
-	//....
-	void *tmpSpace;
+  memset(dOffset,0,sizeof(dOffset));
+  for(std::vector<transferData*>::iterator iter = CpuToGpu.begin(); iter != CpuToGpu.end(); ++iter) {
+    CpuCopy(cpuforGPU,dLen,dOffset,(*iter)->sAddr,(*iter)->sLen,(*iter)->sOffset,(*iter)->shape,dims,type);	
+    memcpy((*iter)->sOffset,dOffset,sizeof(dOffset));
+    dOffset[dims-1] += (*iter)->shape[dims-1];
+  }
+
+  //....
+  void *tmpSpace;
   GPUAlloc((Device_Thread)threadId, &tmpSpace, size);
-	Cudas[threadId].LockAndPushContext();
-	//CudaSafe(cudaMalloc(&tmpSpace,size));
-	
-	CudaSafe(cudaMemcpy(tmpSpace,cpuforGPU,size,cudaMemcpyHostToDevice));
-	//CudaSafe(cudaFreeHost(cpuforGPU));
-	//free(cpuforGPU);
-	for(std::vector<transferData*>::iterator iter = CpuToGpu.begin(); iter != CpuToGpu.end(); ++iter) {
-		KernelCopy((*iter)->dAddr,(*iter)->dLen,(*iter)->dOffset,tmpSpace,dLen,(*iter)->sOffset,(*iter)->shape,dims,type);
-                delete (*iter);
-                *iter = NULL;
-                checkCUDAError("gpu reo");
-	}
-	//CudaSafe(cudaFree(tmpSpace));
+  Cudas[threadId].LockAndPushContext();
+  //CudaSafe(cudaMalloc(&tmpSpace,size));
+
+  CudaSafe(cudaMemcpy(tmpSpace,cpuforGPU,size,cudaMemcpyHostToDevice));
+  //CudaSafe(cudaFreeHost(cpuforGPU));
+  //free(cpuforGPU);
+  for(std::vector<transferData*>::iterator iter = CpuToGpu.begin(); iter != CpuToGpu.end(); ++iter) {
+    KernelCopy((*iter)->dAddr,(*iter)->dLen,(*iter)->dOffset,tmpSpace,dLen,(*iter)->sOffset,(*iter)->shape,dims,type);
+    delete (*iter);
+    *iter = NULL;
+    checkCUDAError("gpu reo");
+  }
+  //CudaSafe(cudaFree(tmpSpace));
   GPUFree((Device_Thread)threadId, tmpSpace);
-	
-	Cudas[threadId].ReleaseAndPopContext();
+
+  Cudas[threadId].ReleaseAndPopContext();
 }
 
 
 void TransferGToG(int threadId,ElementType type, std::vector<transferData*>& GpuBToGpuA,
-  cudaStream_t& srcStream,cudaStream_t& destStream){
+    cudaStream_t& srcStream,cudaStream_t& destStream){
   int dLen[DSM_MAX_DIMENSION];
   int dOffset[DSM_MAX_DIMENSION];
   if(GpuBToGpuA.size() == 0)
@@ -1932,7 +1643,7 @@ void TransferGToG(int threadId,ElementType type, std::vector<transferData*>& Gpu
     memcpy((*iter)->sOffset,dOffset,sizeof(dOffset));
     dOffset[dims-1] += (*iter)->shape[dims-1];
   }
-  
+
 
   void* cpuforGPU;// = malloc(size);
   //CudaSafe(cudaHostAlloc((void**)&cpuforGPU,size,cudaHostAllocDefault));
@@ -1983,10 +1694,10 @@ void TransferGToG(int threadId,ElementType type, std::vector<transferData*>& Gpu
 }
 
 HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* state,
-  std::vector<DataObjState*>& gpu1Blocks,
-  std::vector<DataObjState*>& gpu2Blocks,
-  std::vector<DataObjState*>& cpuBlocks,
-  cudaStream_t& srcStream,cudaStream_t& destStream,Operation& opr)
+    std::vector<DataObjState*>& gpu1Blocks,
+    std::vector<DataObjState*>& gpu2Blocks,
+    std::vector<DataObjState*>& cpuBlocks,
+    cudaStream_t& srcStream,cudaStream_t& destStream,Operation& opr)
 {
   if(gpu1Blocks.size() ==0 && gpu2Blocks.size() == 0 &&  cpuBlocks.size() == 0)
     return -1;//don't have data   
@@ -2002,7 +1713,7 @@ HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* 
     for(std::vector<DataObjState*>::iterator preIter = gpu1Blocks.begin(); preIter != gpu1Blocks.end();++preIter){
       if(intersect(state,*preIter,tmpOffset,shape)){
         //if((*preIter)->GPUState(GPU1_THREAD) == SWaiting)
-          //CudaSafe(cudaEventSynchronize((*preIter)->gpu1.validEvent));
+        //CudaSafe(cudaEventSynchronize((*preIter)->gpu1.validEvent));
         for(int k = 0; k < state->dims; k++){
           dLen[k] = state->shape[k] + state->gpu1.loff[k] + state->gpu1.uoff[k];
           sLen[k] = (*preIter)->shape[k] + (*preIter)->gpu1.loff[k] + (*preIter)->gpu1.uoff[k];
@@ -2011,7 +1722,7 @@ HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* 
         }
         Cudas[threadId].LockAndPushContext();  
         KernelCopy(destAddr,dLen,dOffset,(*preIter)->gpu1.Addr,
-          sLen,sOffset,shape,state->dims,state->eleType);
+            sLen,sOffset,shape,state->dims,state->eleType);
         //KernelCopyAsync(destAddr,dLen,dOffset,(*preIter)->gpu1.Addr,
         //  sLen,sOffset,shape,state->dims,state->eleType,destStream);
         Cudas[threadId].ReleaseAndPopContext();
@@ -2055,7 +1766,7 @@ HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* 
     for(std::vector<DataObjState*>::iterator preIter = gpu2Blocks.begin(); preIter != gpu2Blocks.end();++preIter){
       if(intersect(state,*preIter,tmpOffset,shape)){
         //if((*preIter)->GPUState(GPU2_THREAD) == SWaiting)
-          //CudaSafe(cudaEventSynchronize((*preIter)->gpu2.validEvent));
+        //CudaSafe(cudaEventSynchronize((*preIter)->gpu2.validEvent));
         for(int k = 0; k < state->dims; k++){
           dLen[k] = state->shape[k] + state->gpu2.loff[k] + state->gpu2.uoff[k];
           sLen[k] = (*preIter)->shape[k] + (*preIter)->gpu2.loff[k] + (*preIter)->gpu2.uoff[k];
@@ -2064,11 +1775,11 @@ HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* 
         }
         Cudas[threadId].LockAndPushContext();  
         KernelCopy(destAddr,dLen,dOffset,(*preIter)->gpu2.Addr,
-          sLen,sOffset,shape,state->dims,state->eleType);
+            sLen,sOffset,shape,state->dims,state->eleType);
         //KernelCopyAsync(destAddr,dLen,dOffset,(*preIter)->gpu2.Addr,
         //  sLen,sOffset,shape,state->dims,state->eleType,destStream);
         Cudas[threadId].ReleaseAndPopContext();
- 
+
         //cudaThreadSynchronize();
         checkCUDAError("pre before redis");
         intersectFlag = true;
@@ -2161,7 +1872,7 @@ HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* 
   //end of add
 
   if(threadId == GPU1_THREAD || threadId == GPU2_THREAD) 
-      state->pGpus[threadId]->stream = destStream;
+    state->pGpus[threadId]->stream = destStream;
 
   if(intersectFlag)
     return SUCCESS;
@@ -2172,348 +1883,348 @@ HRESULT Redistributed(int threadId,bool isPrefetch,void* destAddr,DataObjState* 
 #define TransBlockX 16
 #define TransBlockY 16
 __global__ void Transpose3d_12_8_kernel(double* d_src, double* d_dest, int dim1Len,
-                                        int dim2Len, int dim3Len)
+    int dim2Len, int dim3Len)
 {
 
-    __shared__ double tmp[TransBlockY][TransBlockX];
+  __shared__ double tmp[TransBlockY][TransBlockX];
 
-    int x = threadIdx.x+blockIdx.x*blockDim.x;
-    int y = threadIdx.y+blockIdx.y*blockDim.y;
+  int x = threadIdx.x+blockIdx.x*blockDim.x;
+  int y = threadIdx.y+blockIdx.y*blockDim.y;
 
-    int new_x = threadIdx.x+blockIdx.y*blockDim.y;
-    int new_y = threadIdx.y+blockIdx.x*blockDim.x;
+  int new_x = threadIdx.x+blockIdx.y*blockDim.y;
+  int new_y = threadIdx.y+blockIdx.x*blockDim.x;
 
-    for (int k=0; k<dim3Len; k++)
-    {
-        if (x<dim1Len && y<dim2Len)
-            tmp[threadIdx.y][threadIdx.x] = d_src[k*dim1Len*dim2Len+y*dim1Len+x];
-        __syncthreads();
-        if (new_x<dim2Len && new_y<dim1Len)
-            d_dest[k*dim1Len*dim2Len+new_y*dim2Len+ new_x] = tmp[threadIdx.x][threadIdx.y];
-    }
+  for (int k=0; k<dim3Len; k++)
+  {
+    if (x<dim1Len && y<dim2Len)
+      tmp[threadIdx.y][threadIdx.x] = d_src[k*dim1Len*dim2Len+y*dim1Len+x];
+    __syncthreads();
+    if (new_x<dim2Len && new_y<dim1Len)
+      d_dest[k*dim1Len*dim2Len+new_y*dim2Len+ new_x] = tmp[threadIdx.x][threadIdx.y];
+  }
 
 }
 
 __global__ void Transpose4d5_12_8_kernel(double* d_src, double* d_dest, int dim1Len,
-        int dim2Len, int dim3Len, int dim4Len)
+    int dim2Len, int dim3Len, int dim4Len)
 {
-    __shared__ double tmp[TransBlockY][TransBlockX];
+  __shared__ double tmp[TransBlockY][TransBlockX];
 
-    int x = threadIdx.x + blockIdx.x*blockDim.x;
-    int y = threadIdx.y + blockIdx.y*blockDim.y;
+  int x = threadIdx.x + blockIdx.x*blockDim.x;
+  int y = threadIdx.y + blockIdx.y*blockDim.y;
 
-    int new_x = threadIdx.x+blockIdx.y*blockDim.y;
-    int new_y = threadIdx.y+blockIdx.x*blockDim.x;
+  int new_x = threadIdx.x+blockIdx.y*blockDim.y;
+  int new_y = threadIdx.y+blockIdx.x*blockDim.x;
 
-    for (int k=0; k<dim4Len; k++)
+  for (int k=0; k<dim4Len; k++)
+  {
+    for (int m=0; m<dim3Len; m++)
     {
-        for (int m=0; m<dim3Len; m++)
-        {
-            if (x<dim1Len && y<dim2Len)
-                tmp[threadIdx.y][threadIdx.x] = d_src[k*dim3Len*dim2Len*dim1Len+m*dim1Len*dim2Len+y*dim1Len+x];
-            __syncthreads();
-            if (new_x<dim2Len && new_y<dim1Len)
-                d_dest[k*dim3Len*dim1Len*dim2Len+m*dim1Len*dim2Len+new_y*dim2Len+new_x] = tmp[threadIdx.x][threadIdx.y];
-        }
+      if (x<dim1Len && y<dim2Len)
+        tmp[threadIdx.y][threadIdx.x] = d_src[k*dim3Len*dim2Len*dim1Len+m*dim1Len*dim2Len+y*dim1Len+x];
+      __syncthreads();
+      if (new_x<dim2Len && new_y<dim1Len)
+        d_dest[k*dim3Len*dim1Len*dim2Len+m*dim1Len*dim2Len+new_y*dim2Len+new_x] = tmp[threadIdx.x][threadIdx.y];
     }
+  }
 }
 
 __global__ void Transpose3d_23_8_kernel(double* d_src, double* d_dest,int dim1Len,
-                                        int dim2Len, int dim3Len)
+    int dim2Len, int dim3Len)
 {
 
-    int x = threadIdx.x + blockIdx.x*blockDim.x;
-    int y = threadIdx.y + blockIdx.y*blockDim.y;
+  int x = threadIdx.x + blockIdx.x*blockDim.x;
+  int y = threadIdx.y + blockIdx.y*blockDim.y;
 
-    if (x>=dim1Len || y>=dim2Len) return;
+  if (x>=dim1Len || y>=dim2Len) return;
 
-    for (int k=0; k<dim3Len; k++)
-    {
-        d_dest[y*dim3Len*dim1Len+k*dim1Len+x] = d_src[k*dim2Len*dim1Len+y*dim1Len+x] ;
-    }
+  for (int k=0; k<dim3Len; k++)
+  {
+    d_dest[y*dim3Len*dim1Len+k*dim1Len+x] = d_src[k*dim2Len*dim1Len+y*dim1Len+x] ;
+  }
 }
 
 __global__ void Transpose4d5_24_8_kernel(double* d_src, double* d_dest, int dim1Len,
-        int dim2Len, int dim3Len, int dim4Len )
+    int dim2Len, int dim3Len, int dim4Len )
 {
 
-    int x = threadIdx.x + blockIdx.x*blockDim.x;
-    int y = threadIdx.y + blockIdx.y*blockDim.y;
+  int x = threadIdx.x + blockIdx.x*blockDim.x;
+  int y = threadIdx.y + blockIdx.y*blockDim.y;
 
-    if (x>=dim1Len || y>=dim2Len) return ;
+  if (x>=dim1Len || y>=dim2Len) return ;
 
-    for (int k=0; k<dim4Len; k++)
+  for (int k=0; k<dim4Len; k++)
+  {
+    for (int m=0; m<dim3Len; m++)
     {
-        for (int m=0; m<dim3Len; m++)
-        {
-            d_dest[y*dim3Len*dim4Len*dim1Len+ m*dim4Len*dim1Len+ k*dim1Len+x] =
-                d_src[k*dim3Len*dim2Len*dim1Len+m*dim2Len*dim1Len+y*dim1Len+x];
-        }
+      d_dest[y*dim3Len*dim4Len*dim1Len+ m*dim4Len*dim1Len+ k*dim1Len+x] =
+        d_src[k*dim3Len*dim2Len*dim1Len+m*dim2Len*dim1Len+y*dim1Len+x];
     }
+  }
 }
 
 
 double* Transpose3d_12_8(Device_Thread threadId, double* d_array,int dim1Len, int dim2Len, int dim3Len)
 {
-    //FIXME: single gpu only now
-    //7.13: support multiple gpu by shoubj
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    printf("3d_12_8 malloc space %lld \n",dim1Len*dim2Len*dim3Len*sizeof(double));
+  //FIXME: single gpu only now
+  //7.13: support multiple gpu by shoubj
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  printf("3d_12_8 malloc space %lld \n",dim1Len*dim2Len*dim3Len*sizeof(double));
 
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
-    Transpose3d_12_8_kernel<<<grid,block>>>(d_array, dest, dim1Len, dim2Len, dim3Len);
-    checkCUDAError("transpose 3d 12");
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, d_array);
-    return dest;
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  Transpose3d_12_8_kernel<<<grid,block>>>(d_array, dest, dim1Len, dim2Len, dim3Len);
+  checkCUDAError("transpose 3d 12");
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, d_array);
+  return dest;
 }
 
 
 double* Transpose4d5_12_8(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len, int dim4Len)
 {
-    //FIXME: single gpu only now
-    //7.13: support multiple gpu by shoubj
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim4Len*dim3Len*dim2Len*dim1Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    printf("4d_12_8 malloc space %lld \n",dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
-    Transpose4d5_12_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
-    checkCUDAError("transpose 4d 23");
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, d_array);
-    return dest;
+  //FIXME: single gpu only now
+  //7.13: support multiple gpu by shoubj
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim4Len*dim3Len*dim2Len*dim1Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  printf("4d_12_8 malloc space %lld \n",dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  Transpose4d5_12_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
+  checkCUDAError("transpose 4d 23");
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, d_array);
+  return dest;
 }
 
 double* Transpose3d_23_8Async(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len,
-                              cudaStream_t stream)
+    cudaStream_t stream)
 {
-    //FIXME: single gpu only
-    //7.13: support multiple gpu by shoubj
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
-    Transpose3d_23_8_kernel<<<grid, block, 0, stream>>>(d_array, dest, dim1Len, dim2Len, dim3Len);
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, d_array);
-    return dest;
+  //FIXME: single gpu only
+  //7.13: support multiple gpu by shoubj
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  Transpose3d_23_8_kernel<<<grid, block, 0, stream>>>(d_array, dest, dim1Len, dim2Len, dim3Len);
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, d_array);
+  return dest;
 }
 
 
 double* Transpose3d_23_8(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len)
 {
-    //FIXME: single gpu only
-    //7.13: support multiple gpu by shoubj
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
-    Transpose3d_23_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len);
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, d_array);
-    return dest;
+  //FIXME: single gpu only
+  //7.13: support multiple gpu by shoubj
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  Transpose3d_23_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len);
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, d_array);
+  return dest;
 }
 
 double* Transpose4d5_24_8Async(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len,
-                               int dim4Len, cudaStream_t stream)
+    int dim4Len, cudaStream_t stream)
 {
-    //FIXME
-    //7.13: support multiple gpu by shoubj
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
-    Transpose4d5_24_8_kernel<<<grid, block, 0, stream>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, d_array);
-    return dest;
+  //FIXME
+  //7.13: support multiple gpu by shoubj
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  Transpose4d5_24_8_kernel<<<grid, block, 0, stream>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, d_array);
+  return dest;
 }
 
 double* Transpose4d5_24_8(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len, int dim4Len)
 {
-    //FIXME
-    //7.13: support multiple gpu by shoubj
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
-    Transpose4d5_24_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, d_array);
-    return dest;
+  //FIXME
+  //7.13: support multiple gpu by shoubj
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  Transpose4d5_24_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, d_array);
+  return dest;
 }
 
 double* Transpose3d_rsh1(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len)
 {
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
 
-    Transpose3d_12_8_kernel<<<grid, block>>>(d_array,dest, dim1Len, dim2Len, dim3Len);
-    grid.x= (dim2Len+TransBlockX-1)/TransBlockX; grid.y = (dim1Len+TransBlockY-1)/TransBlockY;
-    Transpose3d_23_8_kernel<<<grid, block>>>(dest, d_array, dim2Len, dim1Len, dim3Len);
+  Transpose3d_12_8_kernel<<<grid, block>>>(d_array,dest, dim1Len, dim2Len, dim3Len);
+  grid.x= (dim2Len+TransBlockX-1)/TransBlockX; grid.y = (dim1Len+TransBlockY-1)/TransBlockY;
+  Transpose3d_23_8_kernel<<<grid, block>>>(dest, d_array, dim2Len, dim1Len, dim3Len);
 
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, dest);
-    return d_array;
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, dest);
+  return d_array;
 }
 
 double* Transpose4d5_rsh1(Device_Thread threadId, double* d_array, int dim1Len, int dim2Len, int dim3Len, int dim4Len)
 {
-    double* dest;
-    GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
-    Cudas[threadId].LockAndPushContext();
-    dim3 block(TransBlockX, TransBlockY);
-    dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
+  double* dest;
+  GPUAlloc(threadId, (void**)&dest, dim1Len*dim2Len*dim3Len*dim4Len*sizeof(double));
+  Cudas[threadId].LockAndPushContext();
+  dim3 block(TransBlockX, TransBlockY);
+  dim3 grid((dim1Len+TransBlockX-1)/TransBlockX, (dim2Len+TransBlockY-1)/TransBlockY);
 
-    Transpose4d5_12_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
-    grid.x=(dim2Len+TransBlockX-1)/TransBlockX; grid.y=(dim1Len+TransBlockY-1)/TransBlockY;
-    Transpose4d5_24_8_kernel<<<grid, block>>>(dest, d_array, dim2Len, dim1Len, dim3Len, dim4Len);
+  Transpose4d5_12_8_kernel<<<grid, block>>>(d_array, dest, dim1Len, dim2Len, dim3Len, dim4Len);
+  grid.x=(dim2Len+TransBlockX-1)/TransBlockX; grid.y=(dim1Len+TransBlockY-1)/TransBlockY;
+  Transpose4d5_24_8_kernel<<<grid, block>>>(dest, d_array, dim2Len, dim1Len, dim3Len, dim4Len);
 
-    Cudas[threadId].ReleaseAndPopContext();
-    GPUFree(threadId, dest);
-    return d_array;
+  Cudas[threadId].ReleaseAndPopContext();
+  GPUFree(threadId, dest);
+  return d_array;
 }
 
 
 HRESULT omprArrayTranspose(ArrayTranspose arrayTranspose,pid_t threadId,
     ElementType type,int dims,DataObjState* state )
 {
-    BlockOnGPUState* gpuState;
-    if (threadId == GPU1_THREAD)
-        gpuState = &state->gpu1;
-    else
-        gpuState = &state->gpu2;
-    int dimsLen[DSM_MAX_PTHREADS];
-    for(int i = 0; i < dims; i++){
-        dimsLen[i] = state->shape[i] + gpuState->loff[i] + gpuState->uoff[i] ;
-    }
-    if(dims == 3){
-        switch(ElementSize(type)){
-            case 8:
-                if(arrayTranspose.one == 1 && arrayTranspose.other == 2 ||
-                    arrayTranspose.one == 2 && arrayTranspose.other == 1 ){
-                    //Cudas[threadId].LockAndPushContext();
-                    /*
-                    if(gpuState->state == SWaiting){ 
-                        if(threadId == GPU1_THREAD){
-                            CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
-                        } else if(threadId == GPU2_THREAD){
-                            CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
-                        }
-                    }*/
+  BlockOnGPUState* gpuState;
+  if (threadId == GPU1_THREAD)
+    gpuState = &state->gpu1;
+  else
+    gpuState = &state->gpu2;
+  int dimsLen[DSM_MAX_PTHREADS];
+  for(int i = 0; i < dims; i++){
+    dimsLen[i] = state->shape[i] + gpuState->loff[i] + gpuState->uoff[i] ;
+  }
+  if(dims == 3){
+    switch(ElementSize(type)){
+      case 8:
+        if(arrayTranspose.one == 1 && arrayTranspose.other == 2 ||
+            arrayTranspose.one == 2 && arrayTranspose.other == 1 ){
+          //Cudas[threadId].LockAndPushContext();
+          /*
+             if(gpuState->state == SWaiting){ 
+             if(threadId == GPU1_THREAD){
+             CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
+             } else if(threadId == GPU2_THREAD){
+             CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
+             }
+             }*/
 
-                    gpuState->Addr = (void*) Transpose3d_12_8((Device_Thread)threadId, (double*) gpuState->Addr, dimsLen[0], 
-                       dimsLen[1],dimsLen[2]);
-                    //Cudas[threadId].ReleaseAndPopContext();
+          gpuState->Addr = (void*) Transpose3d_12_8((Device_Thread)threadId, (double*) gpuState->Addr, dimsLen[0], 
+              dimsLen[1],dimsLen[2]);
+          //Cudas[threadId].ReleaseAndPopContext();
 
-                    int offset=0;	//offset between Addr and addr on gpu
-                    for (int i=dims-1; i>=0; i--) {
-                        offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
-                    }
-                    gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
-                    //TODO add shape and Blockkey modify
-                } else if(arrayTranspose.one == 6 && arrayTranspose.other == 6){
-                    printf("pid %d, transpose 3d rsh1\n",threadId);
-                    //Cudas[threadId].LockAndPushContext();
-                    gpuState->Addr = (void*) Transpose3d_rsh1((Device_Thread)threadId, (double*) gpuState->Addr, dimsLen[0], dimsLen[1],dimsLen[2]);
-                    //Cudas[threadId].ReleaseAndPopContext();
+          int offset=0;	//offset between Addr and addr on gpu
+          for (int i=dims-1; i>=0; i--) {
+            offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
+          }
+          gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
+          //TODO add shape and Blockkey modify
+        } else if(arrayTranspose.one == 6 && arrayTranspose.other == 6){
+          printf("pid %d, transpose 3d rsh1\n",threadId);
+          //Cudas[threadId].LockAndPushContext();
+          gpuState->Addr = (void*) Transpose3d_rsh1((Device_Thread)threadId, (double*) gpuState->Addr, dimsLen[0], dimsLen[1],dimsLen[2]);
+          //Cudas[threadId].ReleaseAndPopContext();
 
-                    int offset=0;	//offset between Addr and addr on gpu
-                    for (int i=dims-1; i>=0; i--) {
-                        offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
-                    }
-                    gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
-                    //TODO add shape and Blockkey modify
-                }
-                break;
-            default:break;
+          int offset=0;	//offset between Addr and addr on gpu
+          for (int i=dims-1; i>=0; i--) {
+            offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
+          }
+          gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
+          //TODO add shape and Blockkey modify
         }
-    } else if(dims == 4){
-        switch(ElementSize(type)){
-            case 8:
-                if(arrayTranspose.one == 1 && arrayTranspose.other == 2 ||
-                    arrayTranspose.one == 2 && arrayTranspose.other == 1 ){
-                    if(state->dimsLen[2] == 5){
-                        //Cudas[threadId].LockAndPushContext();
-                        /*
-                        if(gpuState->state == SWaiting){
-                            if(threadId == GPU1_THREAD){
-                                CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
-                            } else if(threadId == GPU2_THREAD){
-                                CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
-                            }
-                        }*/
-
-                        gpuState->Addr =  (void*)Transpose4d5_12_8((Device_Thread)threadId, (double*) gpuState->Addr, 
-                            dimsLen[0], dimsLen[1],5,dimsLen[3]);
-                        //Cudas[threadId].ReleaseAndPopContext();
-
-                        int offset=0;	//offset between Addr and addr on gpu
-                        for (int i=dims-1; i>=0; i--) {
-                            offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
-                        }
-                        gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
-                    //TODO add shape and Blockkey modify
-                    } else if ( state->dimsLen[2] == 15) {
-                        
-                    }
-                } else if(arrayTranspose.one == 6 && arrayTranspose.other == 6){
-                    //Cudas[threadId].LockAndPushContext();
-                    gpuState->Addr = (void*) Transpose4d5_rsh1((Device_Thread)threadId, (double*) gpuState->Addr, dimsLen[0], dimsLen[1],dimsLen[2],dimsLen[3]);
-                    //Cudas[threadId].ReleaseAndPopContext();
-
-                    int offset=0;	//offset between Addr and addr on gpu
-                    for (int i=dims-1; i>=0; i--) {
-                        offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
-                    }
-                    gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
-                    //TODO add shape and Blockkey modify
-                    
-
-                } else if(arrayTranspose.one == 2 && arrayTranspose.other == 4 ||
-                    arrayTranspose.one == 4 && arrayTranspose.other == 2 ){
-                    if(state->dimsLen[2] == 5){
-                        //Cudas[threadId].LockAndPushContext();
-                        /*
-                        if(gpuState->state == SWaiting){
-                            if(threadId == GPU1_THREAD){
-                                CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
-                            } else if(threadId == GPU2_THREAD){
-                                CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
-                            }
-                        }*/
-
-                        gpuState->Addr =  (void*)Transpose4d5_24_8((Device_Thread)threadId, (double*) gpuState->Addr, 
-                            dimsLen[0], dimsLen[1],5,dimsLen[3]);
-                        //Cudas[threadId].ReleaseAndPopContext();
-
-                        int offset=0;	//offset between Addr and addr on gpu
-                        for (int i=dims-1; i>=0; i--) {
-                            offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
-                        }
-                        gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
-                    //TODO add shape and Blockkey modify
-                    }
-
-                }
-                break;
-            default:break;
-        }
-
+        break;
+      default:break;
     }
-    return 0;
+  } else if(dims == 4){
+    switch(ElementSize(type)){
+      case 8:
+        if(arrayTranspose.one == 1 && arrayTranspose.other == 2 ||
+            arrayTranspose.one == 2 && arrayTranspose.other == 1 ){
+          if(state->dimsLen[2] == 5){
+            //Cudas[threadId].LockAndPushContext();
+            /*
+               if(gpuState->state == SWaiting){
+               if(threadId == GPU1_THREAD){
+               CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
+               } else if(threadId == GPU2_THREAD){
+               CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
+               }
+               }*/
+
+            gpuState->Addr =  (void*)Transpose4d5_12_8((Device_Thread)threadId, (double*) gpuState->Addr, 
+                dimsLen[0], dimsLen[1],5,dimsLen[3]);
+            //Cudas[threadId].ReleaseAndPopContext();
+
+            int offset=0;	//offset between Addr and addr on gpu
+            for (int i=dims-1; i>=0; i--) {
+              offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
+            }
+            gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
+            //TODO add shape and Blockkey modify
+          } else if ( state->dimsLen[2] == 15) {
+
+          }
+        } else if(arrayTranspose.one == 6 && arrayTranspose.other == 6){
+          //Cudas[threadId].LockAndPushContext();
+          gpuState->Addr = (void*) Transpose4d5_rsh1((Device_Thread)threadId, (double*) gpuState->Addr, dimsLen[0], dimsLen[1],dimsLen[2],dimsLen[3]);
+          //Cudas[threadId].ReleaseAndPopContext();
+
+          int offset=0;	//offset between Addr and addr on gpu
+          for (int i=dims-1; i>=0; i--) {
+            offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
+          }
+          gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
+          //TODO add shape and Blockkey modify
+
+
+        } else if(arrayTranspose.one == 2 && arrayTranspose.other == 4 ||
+            arrayTranspose.one == 4 && arrayTranspose.other == 2 ){
+          if(state->dimsLen[2] == 5){
+            //Cudas[threadId].LockAndPushContext();
+            /*
+               if(gpuState->state == SWaiting){
+               if(threadId == GPU1_THREAD){
+               CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
+               } else if(threadId == GPU2_THREAD){
+               CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
+               }
+               }*/
+
+            gpuState->Addr =  (void*)Transpose4d5_24_8((Device_Thread)threadId, (double*) gpuState->Addr, 
+                dimsLen[0], dimsLen[1],5,dimsLen[3]);
+            //Cudas[threadId].ReleaseAndPopContext();
+
+            int offset=0;	//offset between Addr and addr on gpu
+            for (int i=dims-1; i>=0; i--) {
+              offset = offset*(state->shape[i]+gpuState->loff[i]+gpuState->uoff[i])+gpuState->loff[i];
+            }
+            gpuState->addr = (char*)gpuState->Addr + offset*ElementSize(type);
+            //TODO add shape and Blockkey modify
+          }
+
+        }
+        break;
+      default:break;
+    }
+
+  }
+  return 0;
 
 }
 
@@ -2527,7 +2238,7 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
   std::vector<DataObjState*> gpu1Blocks;
   std::vector<DataObjState*> gpu2Blocks;
   std::vector<DataObjState*> cpuBlocks;
-  
+
   //get all block with the same cpu base
   pthread_rwlock_rdlock(&ModifyDataState);
   DataStateType::iterator iter = DataState.begin(); 
@@ -2537,10 +2248,10 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
     if( iter->first.base == state->base && iter->second != state){
       //blocks in gpu1 
       if(iter->second->GPUState(GPU1_THREAD) == SValid || iter->second->GPUState(GPU1_THREAD) == SWaiting){
-            gpu1Blocks.push_back(iter->second);
+        gpu1Blocks.push_back(iter->second);
       } else if(iter->second->GPUState(GPU2_THREAD) == SValid || 
-        iter->second->GPUState(GPU2_THREAD) == SWaiting ){
-            gpu2Blocks.push_back(iter->second);
+          iter->second->GPUState(GPU2_THREAD) == SWaiting ){
+        gpu2Blocks.push_back(iter->second);
       } else if(iter->second->cpuState == SValid) {
         //printf("addr:%x\n",state->base);
         cpuBlocks.push_back(iter->second);
@@ -2555,30 +2266,30 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
   }
   long int totalSize = 1;
   long int offset = 0;
-  
+
   bool isPrefetch = false;
 
   if(threadId == GPU1_THREAD){
     //prefetch data use    
 #ifdef PREFETCH 
     if(state->prefetchData.pid == GPU1_THREAD){	 
-       state->gpu1.FreeSpace(GPU1_THREAD);
-       //if(state->gpu1.Addr != NULL)
-       //  GPUFree((Device_Thread)threadId, state->gpu1.Addr);
-       assert(state->prefetchData.Addr);
-       printf("retribu use prefetch data\n");
-       state->gpu1.Addr = state->prefetchData.Addr;	 
-       state->gpu1.addr = state->prefetchData.addr;	 
-       state->gpu1.stream = state->prefetchData.stream;    
-       isPrefetch = true;
+      state->gpu1.FreeSpace(GPU1_THREAD);
+      //if(state->gpu1.Addr != NULL)
+      //  GPUFree((Device_Thread)threadId, state->gpu1.Addr);
+      assert(state->prefetchData.Addr);
+      printf("retribu use prefetch data\n");
+      state->gpu1.Addr = state->prefetchData.Addr;	 
+      state->gpu1.addr = state->prefetchData.addr;	 
+      state->gpu1.stream = state->prefetchData.stream;    
+      isPrefetch = true;
     }
     /*
-    if(state->prefetchData.Addr != NULL){
+       if(state->prefetchData.Addr != NULL){
        printf("pid %d ",state->prefetchData.pid);
        GPUFree(GPU1_THREAD,state->prefetchData.Addr);
        state->prefetchData.clear();
        assert(0); 
-    }*/
+       }*/
 #endif 
     for (int i = state->dims-1; i >= 0; i--) {
       totalSize *= state->shape[i]+state->gpu1.loff[i]+state->gpu1.uoff[i];
@@ -2626,7 +2337,7 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
     CudaSafe(cudaStreamCreate(&Streams[threadId][streamId]));
     Cudas[threadId].ReleaseAndPopContext();
   }  
-   
+
   if (Streams[OtherGPUThd(threadId)][streamId] == 0) {
     Cudas[OtherGPUThd(threadId)].LockAndPushContext();
     CudaSafe(cudaStreamCreate(&Streams[OtherGPUThd(threadId)][streamId]));
@@ -2651,7 +2362,7 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
   if(hre == SUCCESS && threadId == GPU1_THREAD) {
     //state->ValidGPU1();
     state->WaitGPU1();
-    
+
     if (opr.AccessType == Operation::RONLY) {
       Cudas[threadId].LockAndPushContext();
       CudaSafe(cudaEventCreate(&state->gpu1.validEvent));
@@ -2666,7 +2377,7 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
       if (state->gpu2.state != SInvalid) state->OldGPU2();
     }
     if(opr.arrayTranspose.one && opr.arrayTranspose.other){
-        omprArrayTranspose(opr.arrayTranspose,threadId, state->eleType,state->dims,state);
+      omprArrayTranspose(opr.arrayTranspose,threadId, state->eleType,state->dims,state);
     }  
     pInfo->base = (uint64_t)state->gpu1.addr;
 
@@ -2675,13 +2386,13 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
         state->gpu1.loff[i] + state->gpu1.uoff[i];
 
     memcpy(pInfo->dimsOffset, state->gpu1.loff, 
-      sizeof(int)*DSM_MAX_DIMENSION);
+        sizeof(int)*DSM_MAX_DIMENSION);
 
     return SUCCESS;
   } else if(hre == SUCCESS && threadId == GPU2_THREAD) {
     //state->ValidGPU2();
     state->WaitGPU2();
-    
+
     if (opr.AccessType == Operation::RONLY) {
       Cudas[threadId].LockAndPushContext();
       CudaSafe(cudaEventCreate(&state->gpu2.validEvent));
@@ -2696,7 +2407,7 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
       if (state->gpu1.state != SInvalid) state->OldGPU1();
     }
     if(opr.arrayTranspose.one && opr.arrayTranspose.other){
-        omprArrayTranspose(opr.arrayTranspose,threadId, state->eleType,state->dims,state);
+      omprArrayTranspose(opr.arrayTranspose,threadId, state->eleType,state->dims,state);
     }  
     pInfo->base = (uint64_t)state->gpu2.addr;
 
@@ -2705,7 +2416,7 @@ HRESULT Redistribution(DataInfo* pInfo,int threadId,int streamId,Operation& opr,
         state->gpu2.loff[i] + state->gpu2.uoff[i];
 
     memcpy(pInfo->dimsOffset, state->gpu2.loff, 
-      sizeof(int)*DSM_MAX_DIMENSION);
+        sizeof(int)*DSM_MAX_DIMENSION);
 
     return SUCCESS;
   }
@@ -2717,11 +2428,10 @@ double wrTime[2];
 OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
     Operation& opr, void* base, ElementType type,int dims, ...) {
 
-  //if (threadId != GPU1_THREAD && threadId!=GPU2_THREAD)
-  //  return NOT_GPU_THREAD;
-  
+  assert(threadId == GPU1_THREAD ||
+      threadId == GPU2_THREAD);
 
-    double start = gettime();
+  double start = gettime();
   int ub[DSM_MAX_DIMENSION], lb[DSM_MAX_DIMENSION],len[DSM_MAX_DIMENSION];
   int loff[DSM_MAX_DIMENSION], uoff[DSM_MAX_DIMENSION];
   int shape[DSM_MAX_DIMENSION];
@@ -2737,11 +2447,11 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
 
 #ifdef PREFETCH
   if(threadId == GPU2_PREFETCHTHREAD || threadId == GPU1_PREFETCHTHREAD) {
-      if (opr.AccessType == Operation::RONLY || opr.AccessType == Operation::RW){
-        return traceMgr.prefetchInput(threadId,streamId,key,dims,type,len,loff,uoff);
-      } else
-        return SUCCESS;
-	  //return Prefetch(threadId,streamId,key);
+    if (opr.AccessType == Operation::RONLY || opr.AccessType == Operation::RW){
+      return traceMgr.prefetchInput(threadId,streamId,key,dims,type,len,loff,uoff);
+    } else
+      return SUCCESS;
+    //return Prefetch(threadId,streamId,key);
   }
 #endif
 
@@ -2817,7 +2527,7 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
     return SUCCESS;
   }
 
-	
+
   //if (hre == SUCCESS){ //|| !state->prefetchData.vecPoint.empty()) {
   //this block is newly created, check if the block intersect with 
   //other in entry
@@ -2895,16 +2605,16 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
 #ifdef PREFETCH
       if(!isPrefetch){
 #endif
-    tmp = gettime();
+        tmp = gettime();
         UpdateGPUBlock(stream, state, state->gpu1, state->cpuState,
             state->gpu2, GPU2_THREAD, cpuArrayBase);
-    start += gettime()-tmp;
+        start += gettime()-tmp;
         checkCUDAError("update gpu block");
 #ifdef PREFETCH
       }
 #endif
 
-    tmp = gettime();
+      tmp = gettime();
       state->WaitGPU1();
       if (opr.AccessType == Operation::RONLY) {
         Cudas[threadId].LockAndPushContext();
@@ -2916,12 +2626,12 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
         state->OldCPU();
         if (state->gpu2.state != SInvalid) state->OldGPU2();
       }
-    start += gettime()-tmp;
+      start += gettime()-tmp;
 
     } else if (state->gpu1.state == SOld) {
 
       //nothing to do
-      
+
 
     } else if (state->gpu1.state == SWaiting) {
 
@@ -3002,16 +2712,16 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
       if(!isPrefetch){
 #endif
         //printf("no error\n");
-    tmp = gettime();
+        tmp = gettime();
         UpdateGPUBlock(stream, state, state->gpu2, state->cpuState,
             state->gpu1, GPU1_THREAD, cpuArrayBase);
-    start += gettime()-tmp;
+        start += gettime()-tmp;
         checkCUDAError("update gpu");
 #ifdef PREFETCH
       }
 #endif
 
-    tmp = gettime();
+      tmp = gettime();
       state->WaitGPU2();
       if (opr.AccessType == Operation::RONLY) {
         Cudas[threadId].LockAndPushContext();
@@ -3024,7 +2734,7 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
         state->OldCPU();
         if (state->gpu1.state != SInvalid) state->OldGPU1();
       }
-    start += gettime()-tmp;
+      start += gettime()-tmp;
     } else if (state->gpu2.state == SOld) {
 
       //nothing to do
@@ -3072,8 +2782,8 @@ OMPRresult omprGPUInput(DataInfo* pInfo, pid_t threadId, int streamId,
     //return *itr;
   }
 
-    wrTime[threadId] += gettime()-start;
-    printf("pthread write time:%lf in %d\n", wrTime[threadId], threadId);
+  wrTime[threadId] += gettime()-start;
+  printf("pthread write time:%lf in %d\n", wrTime[threadId], threadId);
   return FAILD_UNKNOWN;
 
 }
@@ -3096,10 +2806,10 @@ OMPRresult omprGPUOutput(pid_t threadId, int streamId, Operation& opr,
 
 #ifdef PREFETCH
   if(threadId == GPU2_PREFETCHTHREAD || threadId == GPU1_PREFETCHTHREAD) {
-      if (opr.AccessType==Operation::RW || opr.AccessType==Operation::WONLY){
-        return traceMgr.prefetchOutput(threadId,streamId,key,dims,type,len,loff,uoff);
-      } else
-        return SUCCESS;
+    if (opr.AccessType==Operation::RW || opr.AccessType==Operation::WONLY){
+      return traceMgr.prefetchOutput(threadId,streamId,key,dims,type,len,loff,uoff);
+    } else
+      return SUCCESS;
   }
 #endif
 
@@ -3281,16 +2991,16 @@ OMPRresult omprCPUInput (DataInfo* pInfo, pid_t threadId, Operation& opr,
           int shape[DSM_MAX_DIMENSION];
           int gpuDimsOffset[DSM_MAX_DIMENSION];
           int gpuThreadId;
-          
+
           if (state->gpu1.state == SValid ||
               state->gpu1.state == SWaiting) {
             gpuThreadId = GPU1_THREAD;
             //if (state->gpu1.state == SWaiting)
-              //CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
+            //CudaSafe(cudaEventSynchronize(state->gpu1.validEvent));
             src = state->gpu1.Addr;
             for (int i=0; i<dims; i++) {
               gpuDimsLen[i] = state->shape[i] + state->gpu1.loff[i] +
-                      state->gpu1.uoff[i];
+                state->gpu1.uoff[i];
               shape[i] = (*itr)->ub[i] - (*itr)->lb[i]+1;
               gpuDimsOffset[i] = (*itr)->lb[i] - (state->dimsOffset[i] -
                   state->gpu1.loff[i]);
@@ -3300,11 +3010,11 @@ OMPRresult omprCPUInput (DataInfo* pInfo, pid_t threadId, Operation& opr,
               state->gpu2.state == SWaiting) {
             gpuThreadId = GPU2_THREAD;
             //if (state->gpu2.state == SWaiting)
-              //CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
+            //CudaSafe(cudaEventSynchronize(state->gpu2.validEvent));
             src = state->gpu2.Addr;
             for (int i=0; i<dims; i++) {
               gpuDimsLen[i] = state->shape[i] + state->gpu2.loff[i] +
-                      state->gpu2.uoff[i];
+                state->gpu2.uoff[i];
               shape[i] = (*itr)->ub[i] - (*itr)->lb[i] +1;
               gpuDimsOffset[i] = (*itr)->lb[i] - (state->dimsOffset[i] -
                   state->gpu2.loff[i]);
@@ -3404,7 +3114,7 @@ OMPRresult omprCudaKernelCall(pid_t threadId, int streamId,
 OMPRresult omprGPUSynchronizeA(pid_t threadId, void* base, ElementType type, int dims, ...) {
 
   if(threadId == GPU1_PREFETCHTHREAD || threadId == GPU2_PREFETCHTHREAD)
-      return SUCCESS;
+    return SUCCESS;
 
   int ub[DSM_MAX_DIMENSION], lb[DSM_MAX_DIMENSION],len[DSM_MAX_DIMENSION];
   int loff[DSM_MAX_DIMENSION], uoff[DSM_MAX_DIMENSION];
@@ -3465,10 +3175,10 @@ OMPRresult omprGPUSynchronizeA(pid_t threadId, void* base, ElementType type, int
 OMPRresult omprGPUSynchronize(pid_t threadId) {
 
   if(threadId == GPU1_PREFETCHTHREAD || threadId == GPU2_PREFETCHTHREAD)
-      return SUCCESS;
+    return SUCCESS;
 
   //int ub[DSM_MAX_DIMENSION], lb[DSM_MAX_DIMENSION],len[DSM_MAX_DIMENSION];
-  
+
 
   pthread_rwlock_rdlock(&ModifyDataState);
   DataStateType::iterator itr = DataState.begin();
@@ -3510,7 +3220,7 @@ OMPRresult omprGPUSynchronize(pid_t threadId) {
     pthread_rwlock_unlock(&ModifyDataState);
   }
 
-  
+
   return SUCCESS;
 }
 
@@ -3557,44 +3267,3 @@ OMPRresult omprGPUDataUseless(pid_t threadId, void* base, ElementType type,
   return SUCCESS;
 }
 
-
-/*
-HRESULT Update2CPU(void* base) {
-  return SUCCESS;
-}
-
-   OMPRresult omprSplit(pid_t ompThreadId,void* base,int dims, ...) {
-   Update2CPU(base);
-
-   int shape[DSM_MAX_DIMENSION];
-
-   va_list args;
-   va_start(args,dims);
-   for (int i=0; i<dims; i++) 
-   shape[i] = va_arg(args, int);
-
-
-   DataShapeMap::iterator itr = DataShape.find(base);
-   if (itr == DataShape.end()) {
-   DataShape.insert(std::pair<void*,DataShapeType>(base, DataShapeType()));
-   itr = DataShape.find(base);
-   }
-   DataShapeType& dataShape = itr->second;
-
-   dataShape.base = base;
-   dataShape.dims = dims;
-   memcpy(dataShape.blockShape, shape, sizeof(int)*dims);
-
-   return SUCCESS;
-
-   }*/
-
-#ifdef DEBUG_TEST
-int main() {
-  int lb[5],ub[5],ll[5],lu[5],ul[5],uu[5];
-
-
-
-  return 0;
-}
-#endif

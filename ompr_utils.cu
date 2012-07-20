@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <cstdio>
 #include <cstdlib>
+#include <sys/time.h>
 
 extern DataStateType DataState;
 extern pthread_mutex_t modifyMap;
@@ -124,6 +125,15 @@ void checkCUDAError(const char *msg)
     //exit(-1);
     assert(0);
   }
+}
+
+double gettime()
+{
+  struct timeval sampleval;
+  double time;
+  gettimeofday(&sampleval, NULL);
+  time = sampleval.tv_sec + (sampleval.tv_usec/1000000.0);
+  return (time);
 }
 
 
