@@ -62,7 +62,7 @@ inline char* StateString(State state) {
   return NULL;
 }
 
-typedef enum {Invalid_Device=-1,  GPU1, GPU2, CPU, DeviceSum} Device_Type;
+typedef enum {Invalid_Device=0,  GPU1, GPU2, CPU, DeviceSum} Device_Type;
 typedef enum { 
   Invalid_Thread=-1,
   GPU1_THREAD, 
@@ -152,12 +152,14 @@ extern HRESULT GPUFree(Device_Thread thread, void* Addr);
  * accelerator. The only thing to do is to implement the 
  * DeviceDataOperationStrategy interface and pass the object when
  * constructing the PartDataObj object.
+ * Here we call the part data to be guest data.
  */
 class PartDataObj: public IHaloRegionObserver {
 
   private:
     IntegDataObj* dataObjRef;
-    BlockOnGPUState* opposeDeviceRef;
+
+    Device_Type locatedDevice;
 
   public:
     volatile State state;
@@ -345,14 +347,22 @@ class BlankBlock {
  * PartDataObj, one thing must be done before using the class that
  * is implement the DeviceDataOperationStrategy and pass an object 
  * to the construct function.
+ * Here we call the whole copy to be host data.
  */
-//class DataObjState : public IHaloRegionObserver {
 class IntegDataObj: public IHaloRegionObserver {
+  private:
+    volatile State state;
+    void* baseAddr; //the start address of the host data
+
+    Device_Type locatedDevice;
+
+
+
+};
+
+class DataObjState : public IHaloRegionObserver {
 
   public:
-    //cpu block info
-    volatile State state;
-    void* base; //the base address of the array on cpu
 
     std::vector<HaloState*>* haloRegionObserverList;
     //these halo region obtain the value of this cpy
@@ -371,6 +381,8 @@ class IntegDataObj: public IHaloRegionObserver {
     bool initialized; 
     //if the block state was created with other halo region,
     //then uninitialized, or initialized
+
+    void* base; //the base address of the host data
 
     BlockOnGPUState gpu1,gpu2;
     BlockOnGPUState* pGpus[DeviceSum-1];
